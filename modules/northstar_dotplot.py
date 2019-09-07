@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.spatial.distance import pdist
 from fastcluster import linkage
-from polo import optimal_leaf_ordering
+#from polo import optimal_leaf_ordering
 
 """
 Bojk Berghuis
@@ -68,8 +68,9 @@ def _optimal_order(data, **kwargs):
         **kwargs passed to pdist e.g. metric='correlation'
     """
     d = pdist(data, **kwargs)
-    link = linkage(d, method='average')
-    optimal_order = optimal_leaf_ordering(link, d)
+    optimal_order = linkage(d, method='average', optimal_ordering=True)
+    #NOTE: recent scipy includes this
+    #optimal_order = optimal_leaf_ordering(link, d)
     return optimal_order
 
 def make_top_genes(feat_sel_matrix,tsne_df,column_name,numgenes):
