@@ -37,7 +37,7 @@ Created 2019-07-01, Bojk Berghuis
 
 def unweighted_PCA(data,n_pcs):
     print('-------------------------------------------')
-    print('performing UNweighted PCA')
+    print('performing PCA')
 
     metric = 'correlation'
     matrix = data.values
@@ -73,14 +73,18 @@ def perform_tSNE(pca_df, perplexity=None):
     print('-------------------------------------------')
     return tsnedf
 
-
 def atlas_averages_to_tsnedf(new_metadata,new_counttable,**kwargs):
     savedir = kwargs['savedir']
     date = kwargs['timestamp']
     n_pcs = kwargs['n_pcs']
     atlas = kwargs['atlas']
-    cell_type_names = kwargs['CT_lut']
+    cell_type_names = None
+    if 'CT_lut' in kwargs:
+        # pull dict if working with ground truth values and cell type names that need to be changed
+        cell_type_names = kwargs['CT_lut']
 
+    print('-------------------------------------------')
+    print('Instantiating Northstar')
     #instantiate class
     sa = northstar.Averages(
             atlas=atlas,
@@ -97,13 +101,24 @@ def atlas_averages_to_tsnedf(new_metadata,new_counttable,**kwargs):
             resolution_parameter=kwargs['resolution_parameter'],
             normalize_counts=True,
             )
+    
+    print('-------------------------------------------')
+    print('re-annotating with Northstar using atlas averages...')
+    if isinstance(atlas,str):
+        print('Atlas used: '+atlas)
     sa()
+    print('annotation done.')
 
+    
     # add new membership to metadata
     idx = new_counttable.columns
     n_fixed = len(sa.cell_types)
+    
     new_metadata.loc[idx,'new_class'] = sa.membership
-    new_metadata['new_class_renamed'] = [cell_type_names[f] if f in cell_type_names.keys() else 'NewClass_'+"{0:0=2d}".format(int(f)-n_fixed+1) if (f.isdigit()==True) else f for f in new_metadata['new_class']]
+    if cell_type_names is not None:
+        new_metadata['new_class_renamed'] = [cell_type_names[f] if f in cell_type_names.keys() else 'NewClass_'+"{0:0=2d}".format(int(f)-n_fixed+1) if (f.isdigit()==True) else f for f in new_metadata['new_class']]
+    else:
+        new_metadata.loc[idx,'new_class_renamed'] = ['NewClass_'+"{0:0=2d}".format(int(f)-n_fixed+1) if (f.isdigit()==True) else f for f in new_metadata['new_class']]
 
     # unweighted PCA
     cols = list(sa.cell_types)+list(new_counttable.columns)
@@ -114,9 +129,15 @@ def atlas_averages_to_tsnedf(new_metadata,new_counttable,**kwargs):
     tsnedf = perform_tSNE(normal_PCA,20)
     tsnedf.rename(index=str,columns={0:'Dim1',1:'Dim2'},inplace=True)
     tsnedf.loc[idx,'new_membership'] = new_metadata.loc[idx,'new_class_renamed']
-    tsnedf.loc[tsnedf[:n_fixed].index,'new_membership'] = tsnedf.index[:n_fixed].map(cell_type_names)
+    if cell_type_names is not None:
+        tsnedf.loc[tsnedf[:n_fixed].index,'new_membership'] = tsnedf.index[:n_fixed].map(cell_type_names)
+    else:
+        tsnedf.loc[tsnedf[:n_fixed].index,'new_membership'] = tsnedf.index[:n_fixed] 
+    
 
     # write params to json in new folder with date timestamp
+    print('-------------------------------------------')
+    print('writing parameters to file, time stamp: '+date)
     output_file = savedir+date+'/annotation_parameters_'+atlas+'_CellAtlasAverages_'+date+'.json'
     if not os.path.exists(os.path.dirname(output_file)):
         try:
@@ -128,6 +149,7 @@ def atlas_averages_to_tsnedf(new_metadata,new_counttable,**kwargs):
         file.write(json.dumps(kwargs))
         file.close()
     # save feature matrix for later reference, e.g. making dotplots
+    print('writing feature selected matrix to file...')
     feature_selected_matrix.to_csv(savedir+date+'/feature_selected_matrix_'+date+'.csv')
         
         
@@ -137,6 +159,9 @@ def atlas_averages_to_tsnedf(new_metadata,new_counttable,**kwargs):
     class_lut = dict(zip(celltypes,list(range(1,len(celltypes)+1))))
     tsnedf['class'] = tsnedf['new_membership'].map(class_lut)
     
+    print('done')
+    print('-------------------------------------------')
+
     return tsnedf,celltypes,distance_matrix
 
 def atlas_averages_annotationOnly(new_metadata,new_counttable,**kwargs):
@@ -186,9 +211,14 @@ def atlas_subsamples_to_tsnedf(new_metadata,new_counttable,**kwargs):
     date = kwargs['timestamp']
     n_pcs = kwargs['n_pcs']
     atlas = kwargs['atlas']
-    cell_type_names = kwargs['CT_lut']
-
+    cell_type_names=None
+    if 'CT_lut' in kwargs:
+        # pull dict if working with ground truth values and cell type names that need to be changed
+        cell_type_names = kwargs['CT_lut']
+        
     #instantiate class
+    print('-------------------------------------------')
+    print('Instantiating Northstar')
     no = northstar.Subsample(
             atlas=atlas,
             new_data=new_counttable,
@@ -204,14 +234,21 @@ def atlas_subsamples_to_tsnedf(new_metadata,new_counttable,**kwargs):
             normalize_counts=True,
             )
     
+    print('-------------------------------------------')
+    print('re-annotating with Northstar using atlas subsamples...')
+    print('Atlas used: '+atlas)
     no()
+    print('annotation done.')
 
     # add new membership to metadata
     idx = new_counttable.columns
     n_fixed = len(no.cell_types)
     c_fixed = len(np.unique(no.cell_types))
     new_metadata.loc[idx,'new_class'] = no.membership
-    new_metadata['new_class_renamed'] = [cell_type_names[f] if f in cell_type_names.keys() else 'NewClass_'+"{0:0=2d}".format(int(f)-c_fixed+1) if (f.isdigit()==True) else f for f in new_metadata['new_class']]
+    if cell_type_names:
+        new_metadata['new_class_renamed'] = [cell_type_names[f] if f in cell_type_names.keys() else 'NewClass_'+"{0:0=2d}".format(int(f)-c_fixed+1) if (f.isdigit()==True) else f for f in new_metadata['new_class']]
+    else:
+        new_metadata.loc[idx,'new_class_renamed'] = ['NewClass_'+"{0:0=2d}".format(int(f)-c_fixed+1) if (f.isdigit()==True) else f for f in new_metadata['new_class']]
 
     # unweighted PCA
     cols = list(no.cell_names)+list(new_counttable.columns)
@@ -222,9 +259,15 @@ def atlas_subsamples_to_tsnedf(new_metadata,new_counttable,**kwargs):
     tsnedf = perform_tSNE(normal_PCA,20)
     tsnedf.rename(index=str,columns={0:'Dim1',1:'Dim2'},inplace=True)
     tsnedf.loc[idx,'new_membership'] = new_metadata.loc[idx,'new_class_renamed']
-    tsnedf.loc[tsnedf[:n_fixed].index,'new_membership'] = list(map(cell_type_names.get,no.cell_types))
-
+    if cell_type_names:
+        tsnedf.loc[tsnedf[:n_fixed].index,'new_membership'] = list(map(cell_type_names.get,no.cell_types))
+    else:
+        class_list = [f.split('_')[0] for f in tsnedf[:n_fixed].index]
+        tsnedf.loc[tsnedf[:n_fixed].index,'new_membership'] = class_list
+            
     # write params to json in new folder with date timestamp
+    print('-------------------------------------------')
+    print('writing parameters to file, time stamp: '+date)
     output_file = savedir+date+'/annotation_parameters_'+atlas+'_CellAtlasSubsampling_'+date+'.json'
     if not os.path.exists(os.path.dirname(output_file)):
         try:
@@ -236,6 +279,8 @@ def atlas_subsamples_to_tsnedf(new_metadata,new_counttable,**kwargs):
         file.write(json.dumps(kwargs))
         file.close()
         
+    print('done')
+    print('-------------------------------------------')
         
     atlastypes = list(np.sort(tsnedf.loc[tsnedf[:n_fixed].index,'new_membership'].unique()))
     newtypes = list(set(new_metadata['new_class_renamed']).difference(atlastypes))
